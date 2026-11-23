@@ -383,6 +383,9 @@ h2 { font-size: 17px; }
   /* 문제는 사진이 있는 시그에서만 냅니다. */
   const POOL = ORDER.filter(i => IMG[SIGS[i][1]]);
   const targetOf = r => POOL[(r + 137) % POOL.length];
+  /* 화면에 보이는 판 번호: 매일 한국 시간 00시에 1번부터 다시 세요 (하루 2,880판). */
+  const dayRound = r => ((r + 1080) % 2880) + 1;
+  const roundLabel = r => String(dayRound(r)).padStart(4, "0");
 
   let clockOffset = 0;
   const serverNow = () => Date.now() + clockOffset;
@@ -703,7 +706,7 @@ h2 { font-size: 17px; }
   function tick() {
     const n = serverNow(), r = Math.floor(n / ROUND), t = n % ROUND;
     const left = Math.ceil((ROUND - t) / 1000);
-    $("pRound").textContent = String(r % 10000).padStart(4, "0");
+    $("pRound").textContent = roundLabel(r);
     $("pNext").textContent = String(left).padStart(2, "0") + "초";
     if (r !== shown) { shown = r; renderBoard(); }
     if (fdb) watchStats(blockOf(r));
@@ -849,7 +852,7 @@ h2 { font-size: 17px; }
     const box = $("board"); box.textContent = "";
     done.slice(0, 10).forEach((x, i) => box.appendChild(row((i + 1) + "위", who(x), (x.ms / 1000).toFixed(2) + "초", x.mine, false, cleanMemo(x.memo))));
     $("boardEmpty").hidden = done.length + going.length > 0;
-    $("rankTitle").textContent = "이번 판 순위 · " + String(r % 10000).padStart(4, "0") + "번";
+    $("rankTitle").textContent = "이번 판 순위 · " + roundLabel(r) + "번";
     $("roomNote").textContent = roomState === "on"
       ? (people > 1 ? "지금 " + people + "명이 같은 시그로 겨루고 있어요." : "지금은 혼자예요. 링크를 받은 사람이 들어오면 같은 시그로 겨룹니다.")
       : roomState === "off" ? "순위 서버에 연결하지 못해 지금은 혼자 연습만 할 수 있어요." + (connectError ? " (오류: " + connectError + ")" : "") : "순위 서버에 연결하는 중이에요.";
