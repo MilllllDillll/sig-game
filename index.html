@@ -151,6 +151,8 @@ h2 { font-size: 17px; }
 .mascot.pop { animation: hop .5s cubic-bezier(.3, 1.6, .5, 1); }
 @keyframes hop { 0% { transform: translateY(6px) scale(.9); } 45% { transform: translateY(-12px) scale(1.05); } 100% { transform: none; } }
 .alert { padding: 0 128px; }
+#closed { z-index: 60; }
+#closed .gate-card { text-align: center; justify-items: center; }
 .gate-dog { width: 104px; height: auto; justify-self: center; margin-top: -6px; }
 @media (prefers-reduced-motion: reduce) { .mascot.pop { animation: none; } }
 @media (max-width: 900px) {
@@ -260,6 +262,14 @@ h2 { font-size: 17px; }
 
   <p class="note"><b>하츠 시그 캐치는 가상 게임입니다.</b> 캐시는 점수일 뿐이고 실제 결제나 후원은 일어나지 않아요. 투네이션을 비롯한 어떤 후원 서비스와도 관련이 없습니다. 카드나 계좌 정보를 입력하라는 곳이 있다면 이 게임이 아니니 넣지 마세요. 순위에는 익명 번호와 메시지만 표시되고 저장되지 않아요. 시그 이름·가격·사진은 라인업컴퍼니 시그 목록 기준(2026년 11월 23일 갱신)입니다.</p>
 </main>
+
+<div class="gate" id="closed" role="dialog" aria-modal="true" aria-labelledby="closedTitle" hidden>
+  <div class="gate-card">
+    <img class="gate-dog" id="closedDog" alt="" aria-hidden="true">
+    <h2 id="closedTitle">지금은 쉬는 시간이에요</h2>
+    <p id="closedNote">조금 뒤에 다시 와 주세요.</p>
+  </div>
+</div>
 
 <div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
   <form class="gate-card" id="gateForm" novalidate>
@@ -474,6 +484,7 @@ h2 { font-size: 17px; }
   memoEl.addEventListener("keydown", e => { if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return; e.preventDefault(); give(); });
 
   function pick(i, el) {
+    if (!siteOpen) return;
     if (!nick) { openGate(); return; }
     if (!S.active || S.done) return;
     S.picked = i;
@@ -497,6 +508,7 @@ h2 { font-size: 17px; }
   function touch() { if (S.active && !S.touched) { S.touched = true; share({ state: "type", round: S.round, at: null, memo: null }); } }
   $("give").addEventListener("click", give);
   function give() {
+    if (!siteOpen) return;
     if (!nick) { openGate(); return; }
     if (!S.active || S.done || locked()) return;
     const n = amountVal();
@@ -615,7 +627,7 @@ h2 { font-size: 17px; }
     $("pRound").textContent = String(r % 10000).padStart(4, "0");
     $("pNext").textContent = String(left).padStart(2, "0") + "초";
     if (r !== shown) { shown = r; renderBoard(); }
-    if (S.round !== r && t < JOIN_BY && !document.hidden) startRound(r);
+    if (S.round !== r && t < JOIN_BY && !document.hidden && siteOpen) startRound(r);
     if (S.active && (S.round !== r || t >= PLAY)) endRound();
     if (t >= PLAY) {
       const phase = "result" + r;
@@ -623,6 +635,9 @@ h2 { font-size: 17px; }
       S.phase = phase;
     } else if (S.round === r) {
       if (!S.done) $("timer").textContent = (Math.max(0, n - S.start) / 1000).toFixed(2);
+      /* AI 기록이 제때 보이도록 순위표를 자주 다시 그려요. */
+      const bt = Math.floor(t / 250);
+      if (bt !== S.bt) { S.bt = bt; renderBoard(); }
     } else {
       S.phase = "wait" + r;
       mood("wave");
@@ -632,6 +647,16 @@ h2 { font-size: 17px; }
   }
 
   /* ranking */
+  let siteOpen = true, aiOn = true;
+  function applyConfig(c) {
+    c = c || {};
+    siteOpen = c.open !== false;
+    aiOn = c.ai !== false;
+    $("closed").hidden = siteOpen;
+    $("closedNote").textContent = typeof c.notice === "string" && c.notice.trim() ? c.notice.trim().slice(0, 100) : "조금 뒤에 다시 와 주세요.";
+    if (!siteOpen && S.active) { endRound(); say("지금은 쉬는 시간이에요."); }
+    renderBoard();
+  }
   let fdb = null, myUid = null, playerRef = null, players = {}, roomState = "pending", connectError = "";
   const me = { state: "wait" };
   function pushPlayer() {
@@ -665,7 +690,24 @@ h2 { font-size: 17px; }
     return rows;
   }
   const who = x => x.nick || "익명 " + x.cust;
-  function boardRows(r) { return allRows().filter(x => x.round === r); }
+  /* AI 참가자: 판 번호로 기록이 정해져서 모든 사람 화면에 똑같이 보여요.
+     [이름, 가장 빠른 ms, 가장 느린 ms, 놓칠 확률] */
+  const BOTS = [["🤖 AI 몽실", 3800, 9500, .15], ["🤖 AI 보송", 6000, 14000, .25], ["🤖 AI 꼬물", 9000, 19500, .35]];
+  const BOT_MEMOS = ["멍멍! 찾았다", "오늘도 1등 가즈아", "AI도 시그 좋아해요", "후후 빠르지?", "다음엔 더 빨리!", "꼬리 흔들며 후원", "간식 걸고 후원해요", "사람 이겨 보기"];
+  function seeded(seed) {
+    return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  }
+  function botRows(r) {
+    if (!aiOn || typeof r !== "number") return [];
+    const el = serverNow() - r * ROUND;
+    return BOTS.map(([name, lo, hi, miss], k) => {
+      const R = seeded(r * 7919 + k * 104729 + 13);
+      const missed = R() < miss, ms = Math.round(lo + R() * (hi - lo)), memo = BOT_MEMOS[Math.floor(R() * BOT_MEMOS.length)];
+      const state = !missed && el >= ms ? "done" : el < PLAY ? "type" : "fail";
+      return { cust: "0000", nick: name, round: r, state, ms: state === "done" ? ms : undefined, memo, mine: false, bot: true };
+    });
+  }
+  function boardRows(r) { return allRows().filter(x => x.round === r).concat(botRows(r)); }
   function row(rank, name, value, mine, sub, memo) {
     const li = document.createElement("li");
     li.className = (mine ? "me " : "") + (sub ? "" : "done");
@@ -690,7 +732,7 @@ h2 { font-size: 17px; }
     $("boardEmpty").hidden = done.length + going.length > 0;
     $("rankTitle").textContent = "이번 판 순위 · " + String(r % 10000).padStart(4, "0") + "번";
     $("roomNote").textContent = roomState === "on"
-      ? (people > 1 ? "지금 " + people + "명이 같은 시그로 겨루고 있어요." : "지금은 혼자예요. 링크를 받은 사람이 들어오면 같은 시그로 겨룹니다.")
+      ? (people > 1 ? "지금 " + people + "명이 같은 시그로 겨루고 있어요." : "지금은 혼자예요. 링크를 받은 사람이 들어오면 같은 시그로 겨룹니다.") + (aiOn ? " AI " + BOTS.length + "마리도 함께 겨뤄요." : "")
       : roomState === "off" ? "순위 서버에 연결하지 못해 지금은 혼자 연습만 할 수 있어요." + (connectError ? " (오류: " + connectError + ")" : "") : "순위 서버에 연결하는 중이에요.";
     $("meLine").textContent = "나: " + (nick || "닉네임 없음") + " · 성공 " + S.count + "회" + (S.best ? " · 최고 " + (S.best / 1000).toFixed(2) + "초" : "");
     if (n % ROUND >= PLAY && S.phase === "result" + r) paintResult(r, false);
@@ -706,6 +748,8 @@ h2 { font-size: 17px; }
       myUid = cred.user.uid;
       fdb = firebase.database();
       fdb.ref(".info/serverTimeOffset").on("value", snap => { clockOffset = Number(snap.val()) || 0; });
+      /* 운영 스위치: Firebase의 config/open이 false면 문을 닫고, config/ai가 false면 AI를 빼요. */
+      fdb.ref("config").on("value", snap => applyConfig(snap.val()), () => {});
       fdb.ref(DB_PATH).on("value", snap => {
         if (!playerRef) {
           playerRef = fdb.ref(DB_PATH + "/" + myUid);
@@ -738,6 +782,7 @@ h2 { font-size: 17px; }
   });
   $("nickBtn").addEventListener("click", openGate);
   $("gateDog").src = DOG.wave;
+  $("closedDog").src = DOG.confused;
   mood("wave");
   paintNick(); openGate();
 
