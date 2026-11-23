@@ -189,6 +189,38 @@ h2 { font-size: 17px; }
   .amount { font-size: 22px; }
 }
 @media (prefers-reduced-motion: reduce) { .alert.pop { animation: none; } }
+/* ---------- 휴대폰: 납작한 방송 화면 + 아래 고정 후원 칸 + 움직임 줄이기 ---------- */
+@media (max-width: 600px) {
+  body { padding-bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+  .field, .amount, .quiz-in, #nickInput, #search { font-size: 16px; } /* 16px보다 작으면 아이폰이 화면을 확대해요 */
+  .screen { min-height: 0; padding: 8px 10px; gap: 4px; border-radius: 12px; }
+  .mascot, .heart { display: none !important; }
+  .alert { grid-template-columns: 92px minmax(0, 1fr); grid-template-areas: "shot kick" "shot name" "shot sub"; justify-items: start; text-align: left; padding: 0 !important; gap: 0 10px; align-items: center; }
+  .shot, .alert.win .shot { grid-area: shot; width: 92px !important; margin: 0; border-radius: 8px; box-shadow: 0 0 0 2px #fff; }
+  .alert:not(:has(.shot:not([hidden]))) { grid-template-columns: minmax(0, 1fr); grid-template-areas: "kick" "name" "sub"; }
+  .veil::after { content: "???"; font-size: 11px; }
+  .a-kicker { grid-area: kick; font-size: 12px; }
+  .a-name, .alert.win .a-name { grid-area: name; font-size: 18px; line-height: 1.25; }
+  .a-tags { display: none; }
+  .a-msg { grid-area: sub; font-size: 13px; }
+  .a-msg:not([hidden]) ~ .a-sub { display: none; }
+  .a-sub { grid-area: sub; font-size: 12px; min-height: 0; }
+  .timer { font-size: 18px; }
+  .donate { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; border-radius: 16px 16px 0 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px)); gap: 6px; grid-template-columns: minmax(0, 1fr) auto; box-shadow: 0 -6px 20px rgba(194, 69, 122, .18); }
+  .donate > h2, .donate .balance, .donate .preview, .donate .quick, .donate .hint, .donate .label { display: none; }
+  .donate .amt-box { grid-column: 1; }
+  .donate .give { grid-column: 2; grid-row: 1; padding: 10px 16px; font-size: 16px; }
+  .donate .memo-box { grid-column: 1 / -1; }
+  .donate .msg { grid-column: 1 / -1; font-size: 12px; min-height: 0; }
+  .donate .msg:empty { display: none; }
+  .amount { padding: 8px 52px 8px 12px; }
+  .donate .field { padding: 8px 10px; }
+  .list { max-height: none; overflow: visible; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .sig { padding: 6px 8px; }
+  .sig .tags { display: none; }
+  .star { width: 26px; height: 26px; line-height: 26px; font-size: 15px; top: 4px; right: 4px; }
+  .alert.pop, .mascot.pop, .shake, .gate-step.shake { animation: none !important; }
+}
 </style>
 </head>
 <body>
@@ -236,7 +268,7 @@ h2 { font-size: 17px; }
       <section class="card donate" aria-label="후원하기">
         <h2>캐시 후원하기</h2>
         <div class="balance"><span>보유 가상 캐시</span><b>무제한 (게임용)</b></div>
-        <div>
+        <div class="amt-box">
           <label class="label" for="amount"><span>후원 금액</span></label>
           <div class="amount-wrap">
             <input class="amount" id="amount" type="text" inputmode="numeric" autocomplete="off" placeholder="0" disabled>
@@ -251,7 +283,7 @@ h2 { font-size: 17px; }
           <button type="button" data-add="1000000" disabled>+100만</button>
           <button type="button" class="clear" data-add="0" disabled>정정</button>
         </div>
-        <div>
+        <div class="memo-box">
           <label class="label" for="memo"><span>후원 메시지 (필수)</span><span id="memoCount">0 / 20</span></label>
           <input class="field" id="memo" type="text" autocomplete="off" spellcheck="false" placeholder="꼭 써 주세요 · 1등이 되면 방송 화면에 떠요" disabled>
         </div>
@@ -532,6 +564,8 @@ h2 { font-size: 17px; }
     touch(); beep(1200, .04);
     $("list").querySelectorAll(".sig").forEach(b => b.setAttribute("aria-pressed", "false"));
     if (el) el.setAttribute("aria-pressed", "true");
+    /* 휴대폰에서는 화면을 움직이거나 키보드를 띄우지 않아요 (후원 칸이 아래에 고정돼 있어요). */
+    if (window.matchMedia("(max-width: 600px)").matches) { if (!memoEl.value.trim()) say("아래 칸에 메시지를 써 주세요."); return; }
     if (window.matchMedia("(max-width: 900px)").matches) $("give").scrollIntoView({ block: "nearest" });
     if (!memoEl.value.trim()) memoEl.focus({ preventScroll: true });
     else if (!$("give").disabled) $("give").focus({ preventScroll: true });
