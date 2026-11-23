@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>시그 감시</title>
+<meta name="description" content="방송 화면의 캐쉬 숫자를 읽어 늘어난 금액과 맞는 시그를 알려 줍니다. 윈도우·맥 크롬/엣지에서 동작해요.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2312407a'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%23ffd166' stroke-width='4'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #2c4650; --panel: #dde2db; --panel-2: #c3cbc2; --card: #f7f8f3;
+  --ink: #24323a; --dim: #4e5d61; --edge: #16252c;
+  --blue: #12407a; --blue-ink: #f4f9ff; --amber: #ffd166; --green: #2b8f59; --bad: #a12d1f;
+  --font: "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; padding: 16px; font-family: var(--font); font-size: 15px; line-height: 1.55; color: var(--ink); background: var(--bg); }
+[hidden] { display: none !important; }
+.page { max-width: 1100px; margin: 0 auto; display: grid; gap: 14px; }
+.box { background: var(--panel); border: 3px solid var(--edge); padding: 14px; display: grid; gap: 10px; min-width: 0; }
+h1 { margin: 0; font-size: 22px; color: var(--blue-ink); }
+h2 { margin: 0; font-size: 17px; }
+.head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; justify-content: space-between; }
+.head p { margin: 0; color: #c9d7da; }
+.step { display: inline-grid; place-items: center; width: 1.6em; height: 1.6em; background: var(--blue); color: var(--blue-ink); font-weight: 700; margin-right: 6px; }
+button { font: inherit; font-weight: 700; border: 2px solid var(--edge); background: var(--card); color: var(--ink); padding: 7px 14px; cursor: pointer; }
+button.primary { background: var(--green); color: #fff; }
+button.stop { background: var(--bad); color: #fff; }
+button:disabled { opacity: .5; cursor: default; }
+:focus-visible { outline: 3px dashed var(--blue); outline-offset: 2px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.muted { color: var(--dim); margin: 0; }
+.err { color: var(--bad); margin: 0; font-weight: 700; }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; }
+.stagewrap { position: relative; background: #111; border: 2px solid var(--edge); line-height: 0; }
+#view { width: 100%; height: auto; display: block; cursor: crosshair; touch-action: none; }
+.placeholder { padding: 40px 16px; color: #c9d7da; text-align: center; line-height: 1.6; }
+.crop { display: grid; gap: 6px; }
+#cropView { width: 100%; height: auto; image-rendering: pixelated; background: #fff; border: 2px solid var(--edge); }
+.reading { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--blue); overflow-wrap: anywhere; }
+.big { background: var(--blue); color: var(--blue-ink); border: 3px solid var(--edge); padding: 14px; display: grid; gap: 4px; min-height: 120px; align-content: center; }
+.big .amt { font-size: 32px; font-weight: 800; color: var(--amber); font-variant-numeric: tabular-nums; }
+.big .sig { font-size: 24px; font-weight: 800; overflow-wrap: anywhere; }
+.big .sub { color: #c3d8ee; }
+label.opt { display: inline-flex; gap: 6px; align-items: center; }
+input[type=number] { width: 5.5em; font: inherit; padding: 4px 6px; border: 2px solid var(--edge); }
+.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; max-height: 360px; overflow-y: auto; }
+.log li { background: var(--card); border: 2px solid var(--edge); padding: 6px 9px; display: grid; gap: 2px; overflow-wrap: anywhere; }
+.log .t { color: var(--dim); font-variant-numeric: tabular-nums; }
+.log .d { font-weight: 800; color: var(--blue); }
+.log .miss .d { color: var(--dim); }
+.status { font-weight: 700; }
+.status.on { color: var(--green); }
+.note { color: #c9d7da; margin: 0; }
+@media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="head">
+    <h1>시그 감시</h1>
+    <p>방송 화면의 캐쉬 숫자가 바뀌면, 늘어난 금액과 맞는 시그를 알려 줘요.</p>
+  </div>
+
+  <div class="grid">
+    <section class="box" aria-label="화면과 영역">
+      <h2><span class="step">1</span>방송 화면 공유하기</h2>
+      <div class="row">
+        <button class="primary" id="shareBtn" type="button">화면 공유 시작</button>
+        <button id="unshareBtn" type="button" hidden>공유 끝내기</button>
+        <span class="muted" id="shareInfo">방송이 나오는 창이나 탭을 고르세요.</span>
+      </div>
+      <p class="err" id="shareErr" hidden></p>
+      <h2><span class="step">2</span>캐쉬 숫자 영역 드래그하기</h2>
+      <div class="stagewrap">
+        <canvas id="view" width="960" height="540" hidden></canvas>
+        <div class="placeholder" id="placeholder">화면을 공유하면 여기에 보여요.<br>그다음 캐쉬 숫자만 감싸게 드래그하세요. "누적", "캐쉬" 같은 글자는 빼는 게 좋아요.</div>
+      </div>
+    </section>
+
+    <div class="page" style="gap:14px">
+      <section class="box" aria-label="읽은 숫자">
+        <h2><span class="step">3</span>감시하기</h2>
+        <div class="crop">
+          <canvas id="cropView" width="300" height="80"></canvas>
+          <div class="reading" id="reading">—</div>
+          <p class="muted" id="readInfo">영역을 정하면 읽은 숫자가 여기 보여요.</p>
+        </div>
+        <div class="row">
+          <button class="primary" id="watchBtn" type="button" disabled>감시 시작</button>
+          <span class="status" id="status">멈춤</span>
+        </div>
+        <div class="row">
+          <label class="opt"><input type="checkbox" id="optSound" checked> 소리</label>
+          <label class="opt"><input type="checkbox" id="optNotify"> 알림</label>
+          <label class="opt">확인 <input type="number" id="optConfirm" min="1" max="5" value="2">번</label>
+        </div>
+        <p class="muted">같은 숫자가 '확인' 횟수만큼 연속으로 읽혀야 바뀐 걸로 봐요. 잘못 읽은 숫자가 자주 끼면 3으로 올리세요.</p>
+      </section>
+
+      <section class="big" aria-live="polite" aria-label="최근 감지">
+        <div class="sub" id="bigWhen">아직 감지한 변화가 없어요</div>
+        <div class="amt" id="bigAmt"></div>
+        <div class="sig" id="bigSig"></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="box" aria-label="기록">
+    <div class="row" style="justify-content:space-between">
+      <h2>기록</h2>
+      <div class="row">
+        <button id="csvBtn" type="button">CSV 저장</button>
+        <button id="clearBtn" type="button">지우기</button>
+      </div>
+    </div>
+    <ul class="log" id="log"></ul>
+    <p class="muted" id="logEmpty">숫자가 바뀌면 여기에 쌓여요.</p>
+    <p class="muted" id="sigInfo"></p>
+  </section>
+
+  <p class="note">윈도우·맥의 크롬이나 엣지에서 쓰세요. 이 창은 <b>최소화하지 말고</b> 방송 옆에 띄워 두세요. 최소화하면 브라우저가 읽기를 늦출 수 있어요. 화면은 이 컴퓨터 안에서만 읽고 어디에도 보내지 않아요. 숫자 인식에는 Tesseract.js를 씁니다.</p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script>
+(() => {
+  /* 이 파일을 index.html과 같은 곳에 두면 최신 시그 목록을 그 파일에서 읽어요. 못 읽으면 아래 사본을 써요. */
+  const FALLBACK_SIGS = /*SIGS*/[["이쁜이는 뒤를 돌아봅니다",10000,""],["아봉",11100,""],["다미온Grrr",15000,""],["닭비트",20000,""],["OVER DRIVE",22000,""],["모찌송",30000,""],["Selfie 셀피",35000,"신규·음원"],["키세스",40000,""],["12345678",43200,"음원"],["카메라엑션",45000,""],["아헤가오",48000,""],["너도나와같다면",48600,""],["가방챌린지",50000,""],["몸매",51000,""],["먀옹",53000,""],["버터플라이",57000,"단체"],["솜사탕",58000,""],["외모체크",60000,""],["너뿐이야",61000,""],["삐끼삐끼",61500,""],["나몇년생 누구인데",62000,""],["파티업",62500,""],["교통정리",63000,""],["Supadopa",63500,""],["팬서비스",64000,""],["러브송",64500,""],["니가좋아",65000,""],["스키스키",66000,""],["포켓몬",67000,"단체"],["나니가스키",68000,""],["버미의 모시모시",68200,"멤버·음원"],["제로투",69000,""],["멋있어",70000,""],["노움의 슈퍼그럼요",70500,""],["하민의 오로나민C",70700,"멤버"],["촉촉착착",71000,"단체"],["여름이었다",71500,"음원"],["코카인",72000,""],["키리의 TT",72500,"멤버·음원"],["우치다",73000,""],["푝푝",74000,""],["뾱뾱이",75000,""],["오빠달려",77000,""],["도마챌린지",78000,""],["버미의 냥냥",78200,"신규"],["사랑받을 준비완료",79000,"음원"],["홀리몰리",80000,""],["푱푱",80800,"음원"],["키리의 고양이송",82000,""],["시혁의 Move",82500,""],["핑크레이디",87000,""],["파이팅해야지",88000,""],["소다팝",88800,"신규"],["자기야 화풀어",89000,""],["프리티걸",90000,"신규"],["GUAP",92000,"신규·음원"],["Look for 시혁",92800,""],["재중의 퍼퓸",93000,""],["붉은노을",95000,"단체"],["인더클럽",96000,""],["아로아로",97000,""],["우리집",98000,""],["예예예예",100000,""],["날라리",101000,""],["도레미파솔라시도",102000,"단체"],["Chu",103000,""],["캔디",104000,"단체"],["2인 키세스",104400,"음원"],["귀여워서 미안해",105000,""],["노움의 불도저",105500,""],["고민중독",106000,"신규·음원"],["호영업",107000,"단체"],["키리 신호탄",107200,"멤버"],["캐치캐치",108000,""],["버미응원가",108200,""],["해수몬진화",108500,""],["여우",109000,"신규·음원"],["핫해",110000,""],["해품단에게 직진",111000,""],["Lets Go 견자단",112000,""],["여울신호탄",113900,"신규"],["씨바레스고",116000,"단체"],["유원 신호탄",116100,"멤버"],["BLAH",117000,""],["준우신호탄",117900,""],["진구신호탄",118000,""],["해인신호탄",119000,"신규·멤버"],["하지마",120000,"신규·음원"],["재중신호탄-힙송",121200,""],["우신신호탄",121800,""],["아웅다웅",122000,""],["키리의 뽀삐뽀삐",123000,""],["견자단천생연분",123300,"신규"],["블럭단응원가",123400,""],["하민신호탄",124000,""],["REDRED",125000,""],["스타단 너만보여",126000,""],["CK응원가",127000,""],["키리신호탄3",127200,""],["진구응원가",129000,""],["EDM",130000,""],["첫만남은계획대로되지않아",131000,""],["쏘리쏘리",132000,"단체"],["재중 Standing next to yo",132300,""],["나랑사귈래?",133000,""],["푸른성훈초",133300,""],["킥드럼베이스",134000,""],["하울의 Pump up the volume",134800,""],["체온",135000,"음원"],["키리 큐스토(키리응원가)",137200,"멤버"],["버미가 체포하겠어",138200,"신규"],["엉큰녀",139000,""],["슥삭슥삭",140000,"단체"],["한이신호탄",141400,""],["우기신호탄(힐러)",142000,""],["Ride(2인)",142200,"신규·음원"],["시혁 신호탄",142800,""],["여울응원가",143900,""],["SEXY AND I KNOW IT",144000,"음원"],["박하응원가",144400,""],["내가 S면 넌 나의 N",145000,""],["천사유원",146100,""],["준용신호탄",146500,""],["알려줄게",147000,""],["현우응원가",148000,""],["해적단 기집애들 이뻐(해수응원가)",148500,"멤버"],["결국너야",148600,""],["바우치",150000,""],["엘리베이터",153000,""],["GENTO",154000,""],["우유",156000,""],["해인의 Butter-fly",157000,""],["키리신호탄2",157200,""],["헨타이",158000,""],["현우신호탄",158900,""],["fast cars",159000,""],["dont call me babe",160000,"신규"],["키리신호탄4",162100,""],["Cant stop 혁근(혁근응원가)",163000,"멤버"],["바다보러갈래(2인)",164000,""],["민재신호탄-누난너무예뻐",165000,""],["If you love me(2인)",168000,"신규·음원"],["버미신호탄",168200,""],["야생마",169000,"음원"],["버미의 모또모또",169400,""],["No Batio",170000,""],["햄토리",172000,""],["사기캐",175000,"신규"],["도리신호탄",177700,""],["락민신호탄",178000,"신규·멤버"],["해수응원가 Switch",178500,""],["락민신호탄2",179000,""],["fiesta loca",180000,"신규"],["시팔싸비(싸비응원가2)",184200,"멤버"],["내가 너 좋아하면 안되냐? -현호응원가",184800,""],["드라군",185000,""],["오빠나젖었어",188000,""],["버미의 앙카",189000,""],["Sensai(2인시그)",190000,""],["동욱의 폰서트",192000,""],["러브샷",195000,""],["Guilty",196000,"신규·음원"],["원샷",197000,"신규·음원"],["CK신호탄",197200,""],["괴짜가족",198000,"음원"],["전야",199000,""],["뛰뛰빵빵",200000,"단체"],["한이 응원가",200100,""],["도리응원가",200200,""],["CK의 I love U",202000,""],["한이의 2.0",202200,""],["유원신호탄2",206100,""],["동욱 신호탄",206200,"멤버"],["현이신호탄",207000,""],["해수 신호탄",208500,"멤버"],["칙칙폭폭",210000,"단체"],["하울의 큰거온다",210800,""],["BAD",214000,"신규"],["현호응원가2",218500,""],["헤비머신건",220000,"단체"],["게이바",222000,""],["성훈신호탄",222200,"신규·멤버"],["준용이가 꽃길만 걷게해줄게",222900,""],["싸비 신호탄",224200,""],["니가 날 부를떄",228000,""],["할 것",230000,""],["NANANA",235000,"음원"],["살아있네",240000,""],["빠라빠빠",244000,"단체"],["돈터치 싸비(싸비응원가1)",244200,""],["박하신호탄",246000,""],["drop the confetti",250000,""],["Ring Ring",260000,"음원"],["하츠단에게",268100,""],["Crazy Love",270000,"음원"],["리원신호탄",275000,""],["Music",280000,""],["현호신호탄",285000,"멤버"],["이뻐우주신호탄",285900,""],["지코토닉",290000,""],["하울 신호탄",293000,"멤버"],["표독탄",295000,"신규"],["ass up",300000,"단체"],["서준신호탄 Snowprince",303000,"신규"],["꼬마선장",310000,"단체"],["한이의 Misfit",310300,""],["LUNISOLAR",320000,"단체"],["도플갱어",330000,"단체"],["Watch me Burn",333000,""],["서준신호탄 Overdrive",333300,"신규"],["Paranoid(remix)",340000,"음원"],["우기와 댕댕단",342000,""],["Heart to Heart",348600,""],["마티니",350000,""],["TEETH",360000,"단체"],["스키점프",370000,"단체"],["SAXOMASTER",380000,"단체"],["혁근신호탄 2",385000,""],["Sad somtimes (3인)",390000,"신규·단체·음원"],["헌팅",400000,"단체"],["As I love you",410000,"신규·음원"],["Beautiful",420000,"단체"],["Atomic Bomb",430000,"음원"],["널 떠올리는 중이야",440000,""],["준용인 Untouchable",444400,""],["계엄령",450000,""],["Old town road(2인)",460000,"신규·단체·음원"],["Somethin aint right",470000,""],["백갑숙도포카치고",500000,"단체"],["CK은지",500100,"MVP·음원"],["대표은지",500200,""],["동이",502000,"MVP"],["Tie me down",510000,"음원"],["해쪽이",520000,"MVP·음원"],["오드리",522000,"신규"],["I want you",530000,""],["Off the record",540000,"신규·단체·음원"],["호텔파티",550000,"단체"],["늙크크",566000,"MVP"],["유원 응원가",576100,"멤버"],["그녀가 웃잖아",600000,"단체"],["미너",616100,"MVP"],["혁근 신호탄",630000,"멤버"],["보송",633000,""],["설기",640000,"MVP"],["루이찡",650000,"MVP"],["토끼",660000,"MVP"],["익명X",670000,"MVP"],["하늘",690000,"음원"],["여신젤리",697400,""],["U make me",700000,"단체"],["에단",707000,"음원"],["레인보우",710000,"음원"],["뿌뿌",720000,"음원"],["설기",730000,"음원"],["라떼",740000,""],["FLOWER",750000,"단체"],["Atmosphere",760000,"신규·단체·음원"],["릴리",770000,"MVP"],["까까",770700,""],["러브",777700,"MVP"],["해리",778800,"MVP·음원"],["달빛에 그려지는",780000,"단체"],["익명x ver.2",792000,"MVP·음원"],["락민담당일진",794200,"MVP·음원"],["RUMBLE",800000,"단체"],["원픽단최민희",806100,"MVP"],["나니",820000,"MVP"],["익명x",847000,"MVP·음원"],["ALOHA",880000,"MVP·음원"],["무한성",900000,"단체"],["Tinkerbell",910000,"MVP"],["토끼",960000,""],["VIP 중전마마",1000000,"단체"],["이츠미",1000100,""],["해룽",1000900,""],["힝힝",1001000,""],["Legend 익명 X",1002000,""],["설기",1002200,"MVP·음원"],["때끈",1003000,""],["아리",1003100,""],["힝힝UP",1003200,""],["은",1004000,"MVP·음원"],["락민담당일진",1004300,"MVP·음원"],["너굴",1005000,""],["첫눈",1006000,""],["꽃보다 힝힝",1008000,"MVP·음원"],["ㅇㅇ",1010100,""],["후앙",1011800,""],["애기",1020000,"MVP·음원"],["푸멍",1021000,"신규"],["개비누",1022200,""],["셰꼼",1022300,""],["투윤",1026000,"MVP·음원"],["익명X",1027200,""],["삐딱카니",1033000,"신규·MVP"],["네영2",1040200,"MVP·음원"],["러브",1040400,"MVP·음원"],["카나",1040700,""],["비붕이",1041000,""],["CK은지",1048600,"MVP·음원"],["동이",1050200,""],["소으니",1051500,""],["루이찡",1052000,"MVP·음원"],["레브",1053000,"신규·MVP"],["율",1060200,""],["싸비의 카리나(혜정)",1064400,""],["르라보",1064500,""],["늙크크",1066000,"MVP·음원"],["레인보우",1070200,"MVP·음원"],["시루",1076000,"신규"],["Apfel",1080000,""],["꾸꾸",1099000,""],["갓 꾸꾸",1099100,""],["꾸꾸",1099200,""],["CK은지",1100000,""],["혜디",1111100,""],["갓혜디",1111200,""],["사랑해 혜디",1111300,""],["혜디",1111400,""],["지나",1123400,"MVP·음원"],["년이",1181800,"MVP·음원"],["Line Up",1200000,"단체·음원"],["라인업만봄",1234500,"MVP"],["love me like 아티",1248600,"MVP"],["FEIN",1250000,"단체"],["오드리",1256200,"MVP·음원"],["I love 아티 Dangerously",1260000,"MVP"],["반포대교",1500000,"단체"],["티끌모아파산",1919000,"신규"],["SVIP 해적",2000000,"단체"],["러브",2205200,"MVP"],["Unicorn",2500000,"신규·단체·음원"],["SSVIP",3000000,"단체"],["Love is Gone",5000000,"단체"],["천상계",10000000,"단체"],["Fire on up",20000000,"신규·단체·음원"]]/*/SIGS*/;
+  const INTERVAL = 300;
+  const $ = id => document.getElementById(id);
+  const won = n => Number(n).toLocaleString("ko-KR");
+  const stamp = () => new Date().toLocaleTimeString("ko-KR", { hour12: false });
+
+  let SIGS = FALLBACK_SIGS.map(([name, price, tags]) => ({ name, price, tags }));
+  let sigSource = "이 파일에 들어 있는 목록";
+  async function loadSigs() {
+    try {
+      const res = await fetch("index.html", { cache: "no-cache" });
+      if (!res.ok) throw 0;
+      const m = (await res.text()).match(/const SIGS = (\[\[[\s\S]*?\]\]);/);
+      if (!m) throw 0;
+      const list = JSON.parse(m[1]).map(([name, price, tags]) => ({ name, price, tags: tags || "" }));
+      if (list.length) { SIGS = list; sigSource = "index.html의 최신 목록"; }
+    } catch (e) {}
+    $("sigInfo").textContent = "시그 " + SIGS.length + "개 · " + sigSource;
+  }
+
+  /* ---------- 저장해 두는 설정 ---------- */
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("sigwatch-" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem("sigwatch-" + k, JSON.stringify(v)); } catch (e) {} }
+  };
+  $("optSound").checked = store.get("sound", true);
+  $("optConfirm").value = store.get("confirm", 2);
+  $("optSound").addEventListener("change", e => store.set("sound", e.target.checked));
+  $("optConfirm").addEventListener("change", e => {
+    const v = Math.min(5, Math.max(1, parseInt(e.target.value, 10) || 2));
+    e.target.value = v; store.set("confirm", v); watcher.confirm = v;
+  });
+  $("optNotify").addEventListener("change", async e => {
+    if (!e.target.checked) return;
+    if (!("Notification" in window)) { e.target.checked = false; alert("이 브라우저는 알림을 지원하지 않아요."); return; }
+    const p = Notification.permission === "default" ? await Notification.requestPermission() : Notification.permission;
+    if (p !== "granted") { e.target.checked = false; alert("브라우저 알림이 막혀 있어요. 주소창 왼쪽 자물쇠 아이콘에서 알림을 허용해 주세요."); }
+  });
+
+  /* ---------- 화면 공유 ---------- */
+  const video = document.createElement("video");
+  video.muted = true; video.playsInline = true;
+  Object.assign(video.style, { position: "fixed", left: "-10000px", width: "16px", height: "9px" });
+  document.body.appendChild(video);
+  let stream = null;
+
+  $("shareBtn").addEventListener("click", async () => {
+    $("shareErr").hidden = true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      showShareErr("이 브라우저는 화면 공유를 지원하지 않아요. 컴퓨터의 크롬이나 엣지에서 열어 주세요.");
+      return;
+    }
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 10 }, audio: false });
+    } catch (e) {
+      showShareErr(e && e.name === "NotAllowedError"
+        ? "화면 공유가 취소됐어요. 맥이라면 시스템 설정 → 개인정보 보호 및 보안 → 화면 및 시스템 오디오 녹음에서 브라우저를 허용해야 해요."
+        : "화면 공유를 시작하지 못했어요: " + (e && e.message || e));
+      return;
+    }
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    const track = stream.getVideoTracks()[0];
+    track.addEventListener("ended", stopShare);
+    $("shareInfo").textContent = "공유 중: " + (track.label || "화면");
+    $("shareBtn").hidden = true; $("unshareBtn").hidden = false;
+    $("view").hidden = false; $("placeholder").hidden = true;
+    region = store.get("region", null);
+    updateWatchBtn();
+    requestAnimationFrame(drawView);
+  });
+  $("unshareBtn").addEventListener("click", stopShare);
+  function showShareErr(t) { $("shareErr").textContent = t; $("shareErr").hidden = false; }
+  function stopShare() {
+    stopWatch();
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null; video.srcObject = null;
+    $("shareBtn").hidden = false; $("unshareBtn").hidden = true;
+    $("view").hidden = true; $("placeholder").hidden = false;
+    $("shareInfo").textContent = "방송이 나오는 창이나 탭을 고르세요.";
+    updateWatchBtn();
+  }
+
+  /* ---------- 미리 보기와 영역 고르기 ---------- */
+  // 영역은 공유 화면 크기에 대한 비율(0~1)로 저장해요. 창 크기가 바뀌어도 위치가 유지됩니다.
+  let region = null, drag = null;
+  const view = $("view"), vctx = view.getContext("2d");
+
+  function drawView() {
+    if (!stream) return;
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (vw && vh) {
+      const w = Math.min(1280, vw), h = Math.round(w * vh / vw);
+      if (view.width !== w || view.height !== h) { view.width = w; view.height = h; }
+      vctx.drawImage(video, 0, 0, w, h);
+      const r = drag ? normRect(drag) : region;
+      if (r) {
+        vctx.fillStyle = "rgba(0,0,0,.45)";
+        const x = r.x * w, y = r.y * h, rw = r.w * w, rh = r.h * h;
+        vctx.fillRect(0, 0, w, y); vctx.fillRect(0, y + rh, w, h - y - rh);
+        vctx.fillRect(0, y, x, rh); vctx.fillRect(x + rw, y, w - x - rw, rh);
+        vctx.strokeStyle = "#ffd166"; vctx.lineWidth = 3; vctx.strokeRect(x, y, rw, rh);
+      } else {
+        vctx.fillStyle = "rgba(0,0,0,.6)"; vctx.fillRect(0, 0, w, 44);
+        vctx.fillStyle = "#fff"; vctx.font = "bold 20px " + getComputedStyle(document.body).fontFamily;
+        vctx.fillText("캐쉬 숫자만 감싸게 드래그하세요 (글자는 빼고)", 14, 29);
+      }
+      if (!watching && region && !busy) readOnce(false);
+    }
+    setTimeout(() => requestAnimationFrame(drawView), 150);
+  }
+  function pointer(e) {
+    const b = view.getBoundingClientRect();
+    return { x: Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), y: Math.min(1, Math.max(0, (e.clientY - b.top) / b.height)) };
+  }
+  function normRect(d) {
+    return { x: Math.min(d.a.x, d.b.x), y: Math.min(d.a.y, d.b.y), w: Math.abs(d.a.x - d.b.x), h: Math.abs(d.a.y - d.b.y) };
+  }
+  view.addEventListener("pointerdown", e => { const p = pointer(e); drag = { a: p, b: p }; view.setPointerCapture(e.pointerId); });
+  view.addEventListener("pointermove", e => { if (drag) drag.b = pointer(e); });
+  view.addEventListener("pointerup", () => {
+    if (!drag) return;
+    const r = normRect(drag); drag = null;
+    if (r.w * video.videoWidth < 12 || r.h * video.videoHeight < 8) return;
+    region = r; store.set("region", r);
+    watcher.reset(); updateWatchBtn();
+  });
+
+  /* ---------- 숫자 읽기 ---------- */
+  let ocr = null, ocrReady = null;
+  function getOcr() {
+    if (!ocrReady) {
+      ocrReady = (async () => {
+        if (!window.Tesseract) throw new Error("숫자 인식 도구를 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침해 주세요.");
+        $("readInfo").textContent = "숫자 인식 도구를 준비하는 중이에요… (처음 한 번 몇 초 걸려요)";
+        // 글자를 숫자로만 제한하면 "누적", "원" 같은 한글까지 억지로 숫자로 읽어요. 제한 없이 읽고 숫자만 골라냅니다.
+        const w = await Tesseract.createWorker("eng");
+        await w.setParameters({ tessedit_pageseg_mode: "7" });
+        ocr = w;
+        return w;
+      })();
+      ocrReady.catch(e => { ocrReady = null; $("readInfo").textContent = e.message; });
+    }
+    return ocrReady;
+  }
+
+  const crop = $("cropView"), cctx = crop.getContext("2d", { willReadFrequently: true });
+  /** 영역을 잘라 키우고, 회색조로 바꿔 글자는 어둡게·배경은 밝게 맞춰요. */
+  function prepare(source, sw, sh, r) {
+    const sx = r.x * sw, sy = r.y * sh, w = Math.max(1, r.w * sw), h = Math.max(1, r.h * sh);
+    const k = Math.min(4, Math.max(1, 90 / h));
+    const pad = 16, iw = Math.round(w * k), ih = Math.round(h * k), W = iw + pad * 2, H = ih + pad * 2;
+    crop.width = W; crop.height = H;
+    cctx.imageSmoothingEnabled = true; cctx.imageSmoothingQuality = "high";
+    cctx.fillStyle = "#fff"; cctx.fillRect(0, 0, W, H);
+    cctx.drawImage(source, sx, sy, w, h, pad, pad, iw, ih);
+    const img = cctx.getImageData(pad, pad, iw, ih), d = img.data;
+    const hist = new Array(256).fill(0), gray = new Uint8Array(d.length / 4);
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) { const g = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0; gray[j] = g; hist[g]++; }
+    // 오츠 방법으로 글자와 배경을 나누는 기준 밝기를 찾아요.
+    const total = gray.length; let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+    let sumB = 0, wB = 0, best = 0, th = 128;
+    for (let i = 0; i < 256; i++) {
+      wB += hist[i]; if (!wB) continue; const wF = total - wB; if (!wF) break;
+      sumB += i * hist[i]; const mB = sumB / wB, mF = (sum - sumB) / wF, v = wB * wF * (mB - mF) ** 2;
+      if (v > best) { best = v; th = i; }
+    }
+    // 밝은 쪽이 적으면 글자가 밝은 것(어두운 배경)이라 뒤집어요. 흑백 두 색으로 자르면 작은 글씨가 뭉개져서 회색조로 둡니다.
+    let bright = 0; for (const g of gray) if (g > th) bright++;
+    const invert = bright < total / 2;
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+      const v = invert ? 255 - gray[j] : gray[j];
+      d[i] = d[i + 1] = d[i + 2] = v; d[i + 3] = 255;
+    }
+    cctx.putImageData(img, pad, pad);
+    return crop;
+  }
+  /** "누적 12,345,600" → 12345600. 쉼표 묶음은 이어 붙이고, 띄어쓰기로 떨어진 숫자는 따로 봐서 가장 긴 것을 골라요. */
+  function parseNumber(text) {
+    let best = "";
+    for (const m of String(text).matchAll(/\d+(?:[,.] ?\d{3})*/g)) {
+      const digits = m[0].replace(/\D/g, "");
+      if (digits.length > best.length) best = digits;
+    }
+    return best && best.length <= 15 ? Number(best) : null;
+  }
+  async function readCanvas(source, sw, sh, r) {
+    const w = await getOcr();
+    const c = prepare(source, sw, sh, r);
+    const { data } = await w.recognize(c);
+    return { text: data.text.trim(), value: parseNumber(data.text) };
+  }
+
+  /* ---------- 바뀐 숫자 판정 ---------- */
+  const watcher = {
+    confirm: store.get("confirm", 2), current: null, pending: null, seen: 0,
+    reset() { this.current = null; this.pending = null; this.seen = 0; },
+    feed(v) {
+      if (v === this.current) { this.pending = null; this.seen = 0; return null; }
+      if (v === this.pending) this.seen++; else { this.pending = v; this.seen = 1; }
+      if (this.seen < this.confirm) return null;
+      const old = this.current; this.current = v; this.pending = null; this.seen = 0;
+      if (old === null) return { type: "base", value: v };
+      return { type: v > old ? "up" : "down", old, value: v };
+    }
+  };
+  function findSigs(diff) {
+    const exact = SIGS.filter(s => s.price === diff);
+    const pairs = [];
+    if (!exact.length) {
+      outer: for (let i = 0; i < SIGS.length; i++) for (let j = i; j < SIGS.length; j++) {
+        if (SIGS[i].price + SIGS[j].price === diff) { pairs.push([SIGS[i], SIGS[j]]); if (pairs.length >= 3) break outer; }
+      }
+    }
+    return { exact, pairs };
+  }
+  const tagged = s => s.name + (s.tags ? " [" + s.tags.split("·").join(" · ") + "]" : "");
+
+  /* ---------- 기록과 알림 ---------- */
+  const records = [];
+  function addRecord(time, text, cls, diffText) {
+    const li = document.createElement("li"); if (cls) li.className = cls;
+    const t = document.createElement("span"); t.className = "t"; t.textContent = time;
+    const d = document.createElement("span"); d.className = "d"; d.textContent = diffText;
+    const s = document.createElement("span"); s.textContent = text;
+    li.append(t, d, s);
+    $("log").prepend(li); $("logEmpty").hidden = true;
+  }
+  function handle(c) {
+    const time = stamp();
+    if (c.type === "base") { addRecord(time, "이 숫자부터 바뀌는 걸 기다려요.", "miss", "시작 " + won(c.value) + "캐쉬"); return; }
+    if (c.type === "down") { addRecord(time, "숫자가 줄었어요. 화면이 바뀌었거나 초기화된 것 같아요. 여기서부터 다시 셉니다.", "miss", won(c.old) + " → " + won(c.value)); return; }
+    const diff = c.value - c.old, m = findSigs(diff);
+    const sigText = m.exact.length ? m.exact.map(tagged).join(" / ")
+      : m.pairs.length ? "일치하는 시그 없음 · 두 번 겹쳤다면: " + m.pairs.map(p => p[0].name + " + " + p[1].name).join(" / ")
+      : "일치하는 시그 없음";
+    addRecord(time, sigText, m.exact.length ? "" : "miss", "+" + won(diff) + "캐쉬  (" + won(c.old) + " → " + won(c.value) + ")");
+    records.push({ time: new Date().toISOString(), old: c.old, value: c.value, diff, sig: sigText });
+    $("bigWhen").textContent = time + " · " + won(c.old) + " → " + won(c.value);
+    $("bigAmt").textContent = "+" + won(diff) + "캐쉬";
+    $("bigSig").textContent = m.exact.length ? m.exact.map(s => s.name).join(" / ") : "일치하는 시그 없음";
+    if ($("optSound").checked) chime(m.exact.length > 0);
+    if ($("optNotify").checked && "Notification" in window && Notification.permission === "granted") {
+      try { new Notification("+" + won(diff) + "캐쉬", { body: sigText, tag: "sigwatch" }); } catch (e) {}
+    }
+  }
+  let audio = null;
+  function chime(found) {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+      (found ? [880, 1175, 1568] : [440]).forEach((f, i) => {
+        const o = audio.createOscillator(), g = audio.createGain(), t = audio.currentTime + i * .12;
+        o.type = "square"; o.frequency.value = f; g.gain.value = .05;
+        o.connect(g); g.connect(audio.destination); o.start(t); o.stop(t + .1);
+      });
+    } catch (e) {}
+  }
+  $("csvBtn").addEventListener("click", () => {
+    const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
+    const csv = "﻿시각,이전,이후,차이,시그\n" + records.map(r => [r.time, r.old, r.value, r.diff, esc(r.sig)].join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "sigwatch-" + new Date().toISOString().slice(0, 10) + ".csv";
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $("clearBtn").addEventListener("click", () => { records.length = 0; $("log").textContent = ""; $("logEmpty").hidden = false; });
+
+  /* ---------- 감시 ---------- */
+  // 창이 뒤로 가도 느려지지 않게, 시계는 별도 작업자(Worker)에서 돌려요.
+  const ticker = new Worker(URL.createObjectURL(new Blob(["let t;onmessage=e=>{clearInterval(t);if(e.data>0)t=setInterval(()=>postMessage(0),e.data)}"], { type: "text/javascript" })));
+  let watching = false, busy = false, misses = 0;
+  ticker.onmessage = () => { if (watching && !busy) readOnce(true); };
+
+  async function readOnce(live) {
+    if (!stream || !region || !video.videoWidth) return;
+    busy = true;
+    try {
+      const { text, value } = await readCanvas(video, video.videoWidth, video.videoHeight, region);
+      $("reading").textContent = value === null ? "읽지 못함" : won(value) + "캐쉬";
+      $("readInfo").textContent = value === null
+        ? "숫자를 못 읽었어요. 영역을 숫자에 맞게 다시 드래그해 보세요." + (text ? " (읽은 글자: " + text + ")" : "")
+        : live ? "감시 중이에요." : "잘 읽혀요. 감시 시작을 누르세요.";
+      if (live) {
+        if (value === null) { if (++misses === Math.round(10000 / INTERVAL)) $("readInfo").textContent = "10초째 숫자를 못 읽고 있어요. 방송 화면이 바뀌었는지 확인해 주세요."; }
+        else { misses = 0; const c = watcher.feed(value); if (c) handle(c); }
+      }
+    } catch (e) {
+      $("readInfo").textContent = e.message || String(e);
+    } finally { busy = false; }
+  }
+  function updateWatchBtn() { $("watchBtn").disabled = !(stream && region); }
+  function stopWatch() {
+    watching = false; ticker.postMessage(0);
+    $("watchBtn").textContent = "감시 시작"; $("watchBtn").className = "primary";
+    $("status").textContent = "멈춤"; $("status").className = "status";
+  }
+  $("watchBtn").addEventListener("click", () => {
+    if (watching) { stopWatch(); return; }
+    watching = true; misses = 0; watcher.reset();
+    ticker.postMessage(INTERVAL);
+    $("watchBtn").textContent = "멈추기"; $("watchBtn").className = "stop";
+    $("status").textContent = "감시 중"; $("status").className = "status on";
+    chime(false);
+  });
+
+  // 시험용: 콘솔에서 sigwatch.readImage(이미지) 로 숫자 인식을 확인할 수 있어요.
+  window.sigwatch = {
+    readImage: img => readCanvas(img, img.naturalWidth || img.width, img.naturalHeight || img.height, { x: 0, y: 0, w: 1, h: 1 }),
+    feed: v => { const c = watcher.feed(v); if (c) handle(c); return c; },
+    findSigs
+  };
+
+  loadSigs();
+})();
+</script>
+</body>
+</html>
