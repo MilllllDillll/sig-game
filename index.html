@@ -527,7 +527,8 @@ h2 { font-size: 17px; }
   function say(text, good) { $("msg").textContent = text; $("msg").className = "msg" + (good ? " good" : ""); }
 
   /* donating */
-  function touch() { if (S.active && !S.touched) { S.touched = true; share({ state: "type", round: S.round, at: null, memo: null }); } }
+  /* 데이터 절약: "찾는 중"은 서버에 보내지 않아요. */
+  function touch() { if (S.active && !S.touched) S.touched = true; }
   $("give").addEventListener("click", give);
   function give() {
     if (!siteOpen) return;
@@ -561,7 +562,9 @@ h2 { font-size: 17px; }
     const at = playerRef ? firebase.database.ServerValue.TIMESTAMP : Math.round(serverNow());
     const round = S.round;
     S.serverOk = false;
-    const sent = share({ state: "done", round, at, memo: cleanMemo(memoEl.value) });
+    /* 데이터 절약: 랭킹 점수(이번 판 전까지)를 후원 기록에 함께 실어 보내요. 이번 판 점수는 각자 서버 시각으로 계산해요. */
+    const b = blockOf(round), base = myStats.block === b ? myStats : { pts: 0, ok: 0, best: 0 };
+    const sent = share({ state: "done", round, at, memo: cleanMemo(memoEl.value), blk: b, bpts: base.pts, bok: base.ok, bbest: base.best });
     if (!playerRef) confirmFinal(at - S.start);
     else sent.then(ok => { if (ok && S.round === round && S.done) { S.serverOk = true; syncMine(); } });
     renderBoard();
@@ -621,13 +624,12 @@ h2 { font-size: 17px; }
     renderChips(); renderList();
     beep(880, .12); setTimeout(() => beep(1320, .18), 120);
     if (window.matchMedia("(hover: hover)").matches && $("gate").hidden) $("search").focus({ preventScroll: true });
-    share({ state: "wait", round: null, at: null, memo: null });
+    Object.assign(me, { state: "wait", round: null, at: null, memo: null });
   }
   function endRound() {
     S.active = false;
     setInputs(false);
     if (!S.done) {
-      if (S.touched) share({ state: "fail" });
       say("시간이 지나 이번 판은 후원하지 못했어요.");
     }
   }
@@ -697,6 +699,7 @@ h2 { font-size: 17px; }
       p.round = me.round;
       if (me.at !== null && me.at !== undefined) p.at = me.at;
       if (typeof me.memo === "string" && me.memo) p.memo = me.memo;
+      if (p.state === "done" && typeof me.blk === "number") Object.assign(p, { blk: me.blk, bpts: me.bpts, bok: me.bok, bbest: me.bbest });
     } else p.state = "wait";
     return playerRef.set(p).then(() => true, () => {
       if (p.state === "done" && S.done && !S.confirmed && S.round === p.round) say("서버가 기록을 받지 못했어요. 시간이 끝난 뒤에 도착했을 수 있어요.");
@@ -714,7 +717,7 @@ h2 { font-size: 17px; }
       const v = players[uid] || {};
       if (!validCust(v.cust)) continue;
       const mine = uid === myUid; if (mine) sawMe = true;
-      rows.push({ cust: v.cust, nick: cleanNick(v.nick), round: v.round, state: v.state, ms: msOf(v), memo: v.memo, mine });
+      rows.push({ uid, cust: v.cust, nick: cleanNick(v.nick), round: v.round, state: v.state, ms: msOf(v), memo: v.memo, mine, blk: v.blk, bpts: v.bpts, bok: v.bok, bbest: v.bbest });
     }
     if (!sawMe && nick) rows.push({ cust, nick, round: me.round, state: me.state, ms: msOf(me), memo: me.memo, mine: true });
     return rows;
@@ -790,10 +793,9 @@ h2 { font-size: 17px; }
     $("pPeople").textContent = Math.max(1, people) + "명";
     const here = boardRows(r);
     const done = here.filter(isDone).sort((a, b) => a.ms - b.ms);
-    const going = here.filter(x => x.state === "type");
+    const going = [];
     const box = $("board"); box.textContent = "";
     done.slice(0, 10).forEach((x, i) => box.appendChild(row((i + 1) + "위", who(x), (x.ms / 1000).toFixed(2) + "초", x.mine, false, cleanMemo(x.memo))));
-    going.slice(0, 6).forEach(x => box.appendChild(row("·", who(x), "찾는 중", x.mine, true)));
     $("boardEmpty").hidden = done.length + going.length > 0;
     $("rankTitle").textContent = "이번 판 순위 · " + String(r % 10000).padStart(4, "0") + "번";
     $("roomNote").textContent = roomState === "on"
@@ -807,7 +809,7 @@ h2 { font-size: 17px; }
   const BLOCK = 15;
   const blockOf = r => Math.floor(r / BLOCK);
   const ptsOf = ms => Math.max(1, Math.round((PLAY - ms) / 100));
-  let statsRef = null, statsBlock = null, statsData = {}, prevStats = { block: null, data: {} };
+  let statsBlock = null, prevStats = { block: null, data: {} };
   const myStats = { block: null, pts: 0, ok: 0, best: 0, last: null };
   function addMyResult(round, ms) {
     const b = blockOf(round);
@@ -818,19 +820,27 @@ h2 { font-size: 17px; }
     if (fdb && myUid && nick) fdb.ref("catchStats/" + b + "/" + myUid).set({ nick, pts: myStats.pts, ok: myStats.ok, best: myStats.best, last: round }).catch(() => {});
     renderBoard();
   }
+  /* 데이터 절약: 랭킹은 실시간 구독하지 않고, 필요할 때만 한 번씩 읽어요. */
   function watchStats(b) {
     if (!fdb || statsBlock === b) return;
-    if (statsRef) { statsRef.off(); prevStats = { block: statsBlock, data: statsData }; }
-    statsBlock = b; statsData = {};
-    statsRef = fdb.ref("catchStats/" + b);
-    statsRef.on("value", snap => {
-      statsData = snap.val() || {};
-      const mine = myUid && statsData[myUid];
+    statsBlock = b;
+    if (myUid) fdb.ref("catchStats/" + b + "/" + myUid).once("value").then(snap => {
+      const mine = snap.val();
       /* 새로고침해도 이번 15판 점수를 이어 가요. */
-      if (mine && myStats.block !== b) Object.assign(myStats, { block: b, pts: Number(mine.pts) || 0, ok: Number(mine.ok) || 0, best: Number(mine.best) || 0, last: mine.last });
+      if (mine && (myStats.block !== b || (Number(mine.pts) || 0) > myStats.pts)) Object.assign(myStats, { block: b, pts: Number(mine.pts) || 0, ok: Number(mine.ok) || 0, best: Number(mine.best) || 0, last: mine.last });
       renderBoard();
-    }, () => {});
-    if (prevStats.block !== b - 1) fdb.ref("catchStats/" + (b - 1)).once("value").then(snap => { prevStats = { block: b - 1, data: snap.val() || {} }; renderBoard(); }).catch(() => {});
+    }).catch(() => {});
+    fdb.ref("catchStats/" + (b - 1)).once("value").then(snap => { prevStats = { block: b - 1, data: snap.val() || {} }; renderBoard(); }).catch(() => {});
+  }
+  /* 지금 접속한 사람들의 후원 기록에 실린 점수로 실시간 랭킹을 만들어요. */
+  function liveData(b) {
+    const data = {};
+    allRows().forEach(x => {
+      if (!x.uid || x.blk !== b || typeof x.bpts !== "number") return;
+      const done = x.state === "done" && typeof x.ms === "number" && x.ms > 0 && x.ms < PLAY && blockOf(x.round) === b;
+      data[x.uid] = { nick: x.nick, pts: x.bpts + (done ? ptsOf(x.ms) : 0), ok: (Number(x.bok) || 0) + (done ? 1 : 0), best: done ? (x.bbest ? Math.min(x.bbest, x.ms) : x.ms) : (Number(x.bbest) || 0) };
+    });
+    return data;
   }
   function standings(b, data, upto) {
     const map = new Map();
@@ -852,7 +862,7 @@ h2 { font-size: 17px; }
   function renderLeaderboard() {
     const n = serverNow(), r = Math.floor(n / ROUND), t = n % ROUND, b = blockOf(r);
     const upto = t >= PLAY ? r : r - 1, played = Math.max(0, upto - b * BLOCK + 1);
-    const list = standings(b, statsBlock === b ? statsData : {}, upto);
+    const list = standings(b, liveData(b), upto);
     $("lbTitle").textContent = "15판 랭킹 · " + played + " / " + BLOCK + "판";
     const box = $("lb"); box.textContent = "";
     list.slice(0, 5).forEach((x, i) => box.appendChild(row((i + 1) + "위", x.name, won(x.pts) + "점", x.mine, false, "")));
@@ -862,7 +872,18 @@ h2 { font-size: 17px; }
     $("lbPrev").textContent = prev.length ? "지난 랭킹 1위: " + prev[0].name + " · " + won(prev[0].pts) + "점" : "";
   }
   function showAward(r) {
-    const b = blockOf(r), list = standings(b, statsBlock === b ? statsData : {}, r);
+    const b = blockOf(r);
+    /* 발표 때만 전체 랭킹을 한 번 읽어요 (중간에 나간 사람 점수도 포함). */
+    const read = fdb ? fdb.ref("catchStats/" + b).once("value").then(snap => snap.val() || {}, () => ({})) : Promise.resolve({});
+    read.then(saved => {
+      if (S.awarded !== r || Math.floor(serverNow() / ROUND) !== r) return;
+      const data = Object.assign({}, saved);
+      const live = liveData(b);
+      for (const uid of Object.keys(live)) if (!data[uid] || (Number(data[uid].pts) || 0) < live[uid].pts) data[uid] = live[uid];
+      paintAward(r, standings(b, data, r));
+    });
+  }
+  function paintAward(r, list) {
     if (!list.length) return;
     const box = $("awardList"); box.textContent = "";
     list.slice(0, 5).forEach((x, i) => box.appendChild(row(["🥇", "🥈", "🥉", "4위", "5위"][i], x.name, won(x.pts) + "점", x.mine, false, "")));
