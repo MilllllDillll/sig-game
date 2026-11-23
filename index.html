@@ -759,9 +759,13 @@ h2 { font-size: 17px; }
   function botRows(r, elapsed) {
     const el = elapsed === undefined ? serverNow() - r * ROUND : elapsed;
     const extra = sigExtra(SIGS[targetOf(r)]);
-    return roster(r).map((b, k) => {
+    const list = roster(r);
+    /* 판마다 누가 빠른 자리를 맡을지 무작위로 섞어요. 한 명이 1등을 독차지하지 않게요. */
+    const order = list.map((_, k) => k), P = seeded(r * 31337 + 4242);
+    for (let k = order.length - 1; k > 0; k--) { const j = Math.floor(P() * (k + 1)); [order[k], order[j]] = [order[j], order[k]]; }
+    return list.map((b, k) => {
       const R = seeded(r * 7919 + k * 104729 + 13);
-      const [lo, hi, miss] = b.tier;
+      const [lo, hi, miss] = BOT_TIERS[order[k]];
       const missed = R() < miss, base = lo + R() * (hi - lo), memo = BOT_MEMOS[Math.floor(R() * BOT_MEMOS.length)], seen = 300 + R() * 900;
       const ms = Math.round(Math.min(PLAY - 600, base + extra * (0.8 + R() * 0.4)));
       const state = !missed && el >= ms ? "done" : el < PLAY ? (el >= seen ? "type" : "wait") : "fail";
