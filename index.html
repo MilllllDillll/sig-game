@@ -152,6 +152,12 @@ h2 { font-size: 17px; }
 @keyframes hop { 0% { transform: translateY(6px) scale(.9); } 45% { transform: translateY(-12px) scale(1.05); } 100% { transform: none; } }
 .alert { padding: 0 128px; }
 #closed { z-index: 60; }
+.gate-step { display: grid; gap: 10px; }
+.quiz-q { font-size: 20px; font-weight: 800; color: var(--main-2) !important; text-align: center; padding: 10px; background: var(--main-soft); border-radius: 12px; }
+.quiz-in { text-align: center; font-size: 22px; font-weight: 800; letter-spacing: .3em; }
+.quiz-next { justify-self: center; }
+.shake { animation: shake .35s; }
+@keyframes shake { 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
 #award { z-index: 55; }
 #award .gate-card { text-align: center; }
 #award .board { text-align: left; }
@@ -296,13 +302,25 @@ h2 { font-size: 17px; }
 <div class="gate" id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
   <form class="gate-card" id="gateForm" novalidate>
     <img class="gate-dog" id="gateDog" alt="" aria-hidden="true">
-    <h2 id="gateTitle">닉네임을 정해 주세요</h2>
-    <p>순위와 1등 알림에 이 닉네임이 보여요. 2~10자로 써 주세요.</p>
-    <label for="nickInput" style="position:absolute;left:-9999px">닉네임</label>
-    <input class="field" id="nickInput" type="text" autocomplete="off" spellcheck="false" placeholder="예: 시그장인">
-    <p class="msg" id="gateMsg" aria-live="polite"></p>
-    <button class="give" type="submit">입장하기</button>
-    <p class="hint">실제 이름이나 연락처는 쓰지 마세요.</p>
+    <div class="gate-step" id="quizStep" hidden>
+      <h2 id="gateTitle">입장 퀴즈</h2>
+      <p>하츠갤러라면 알 수 있는 문제예요. 숫자 4자리로 답해 주세요.</p>
+      <p class="quiz-q" id="quizQ"></p>
+      <label for="quizInput" style="position:absolute;left:-9999px">퀴즈 답</label>
+      <input class="field quiz-in" id="quizInput" type="text" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="예: 0101">
+      <p class="msg" id="quizMsg" aria-live="polite"></p>
+      <button class="give" type="submit">확인</button>
+      <button class="ghost quiz-next" id="quizNext" type="button">다른 문제</button>
+    </div>
+    <div class="gate-step" id="nickStep" hidden>
+      <h2>닉네임을 정해 주세요</h2>
+      <p>순위와 1등 알림에 이 닉네임이 보여요. 2~10자로 써 주세요.</p>
+      <label for="nickInput" style="position:absolute;left:-9999px">닉네임</label>
+      <input class="field" id="nickInput" type="text" autocomplete="off" spellcheck="false" placeholder="예: 시그장인">
+      <p class="msg" id="gateMsg" aria-live="polite"></p>
+      <button class="give" type="submit">입장하기</button>
+      <p class="hint">실제 이름이나 연락처는 쓰지 마세요.</p>
+    </div>
   </form>
 </div>
 
@@ -507,7 +525,7 @@ h2 { font-size: 17px; }
 
   function pick(i, el) {
     if (!siteOpen) return;
-    if (!nick) { openGate(); return; }
+    if (!nick || !quizOk) { openGate(); return; }
     if (!S.active || S.done) return;
     S.picked = i;
     setAmount(SIGS[i][1]);
@@ -532,7 +550,7 @@ h2 { font-size: 17px; }
   $("give").addEventListener("click", give);
   function give() {
     if (!siteOpen) return;
-    if (!nick) { openGate(); return; }
+    if (!nick || !quizOk) { openGate(); return; }
     if (!S.active || S.done || locked()) return;
     const n = amountVal();
     if (n <= 0) { say("후원 금액을 입력해 주세요."); return; }
@@ -921,15 +939,44 @@ h2 { font-size: 17px; }
   }
 
   /* 입장: 닉네임 정하기 (마지막에 쓴 닉네임을 미리 채워 둬요) */
+  /* 입장 퀴즈: 정답은 그대로 적지 않고 바꿔서(해시) 넣어 뒀어요. 가벼운 팬 인증용이에요. */
+  const QUIZ = [["혁근 생일은?", "21woh1dt2r8"], ["하츠 생일은?", "vrgzr3dggm"], ["하츠갤 명절은?", "7aq7e9azq7"], ["술찌갠방 날짜는?", "1137alk2ivy"]];
+  const QUIZ_VER = "q1";
+  const quizHash = str => { let h1 = 0xdeadbeef ^ 77, h2 = 0x41c6ce57 ^ 77; for (let i = 0, ch; i < str.length; i++) { ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); } h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507); h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909); h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507); h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909); return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36); };
+  let quizOk = prefs.quiz === QUIZ_VER, quizIdx = Math.floor(Math.random() * QUIZ.length);
+  function showQuiz(next) {
+    if (next) quizIdx = (quizIdx + 1 + Math.floor(Math.random() * (QUIZ.length - 1))) % QUIZ.length;
+    $("quizQ").textContent = "Q. " + QUIZ[quizIdx][0];
+    $("quizInput").value = ""; $("quizMsg").textContent = "";
+    setTimeout(() => $("quizInput").focus(), 30);
+  }
   function openGate() {
     $("gate").hidden = false;
+    $("quizStep").hidden = quizOk; $("nickStep").hidden = !quizOk;
+    $("gateDog").src = quizOk ? DOG.wave : DOG.confused;
+    if (!quizOk) { showQuiz(false); return; }
     $("nickInput").value = nick || cleanNick(prefs.nick);
     $("gateMsg").textContent = "";
     setTimeout(() => { $("nickInput").focus(); $("nickInput").select(); }, 30);
   }
+  $("quizNext").addEventListener("click", () => showQuiz(true));
+  $("quizInput").addEventListener("input", () => { $("quizInput").value = $("quizInput").value.replace(/[^0-9]/g, "").slice(0, 4); });
+  function checkQuiz() {
+    const a = $("quizInput").value.trim();
+    if (quizHash("hearts-quiz:" + a) === QUIZ[quizIdx][1]) {
+      quizOk = true; prefs.quiz = QUIZ_VER; savePrefs();
+      [880, 1175, 1568].forEach((f, i) => setTimeout(() => beep(f, .12), i * 100));
+      openGate();
+    } else {
+      $("quizMsg").textContent = a.length < 4 ? "숫자 4자리로 써 주세요." : "틀렸어요. 다시 생각해 보세요!";
+      restart($("quizStep"), "shake"); beep(220, .2, "square");
+      $("quizInput").select();
+    }
+  }
   function paintNick() { $("nickBtn").textContent = nick ? nick + " · 바꾸기" : "닉네임 정하기"; }
   $("gateForm").addEventListener("submit", e => {
     e.preventDefault();
+    if (!quizOk) { checkQuiz(); return; }
     const v = cleanNick($("nickInput").value);
     if (Array.from(v).length < 2) { $("gateMsg").textContent = "닉네임을 2자 이상 써 주세요."; $("nickInput").focus(); return; }
     nick = v; prefs.nick = v; savePrefs();
