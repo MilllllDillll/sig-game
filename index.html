@@ -943,7 +943,8 @@ h2 { font-size: 17px; }
   const QUIZ = [["혁근 생일은?", "21woh1dt2r8"], ["하츠 생일은?", "vrgzr3dggm"], ["하츠갤 명절은?", "7aq7e9azq7"], ["술찌갠방 날짜는?", "1137alk2ivy"]];
   const QUIZ_VER = "q1";
   const quizHash = str => { let h1 = 0xdeadbeef ^ 77, h2 = 0x41c6ce57 ^ 77; for (let i = 0, ch; i < str.length; i++) { ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); } h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507); h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909); h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507); h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909); return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36); };
-  let quizOk = prefs.quiz === QUIZ_VER, quizIdx = Math.floor(Math.random() * QUIZ.length);
+  /* 새로고침할 때마다 퀴즈를 다시 풀어요 (통과 기록을 남기지 않아요). */
+  let quizOk = false, quizIdx = Math.floor(Math.random() * QUIZ.length);
   function showQuiz(next) {
     if (next) quizIdx = (quizIdx + 1 + Math.floor(Math.random() * (QUIZ.length - 1))) % QUIZ.length;
     $("quizQ").textContent = "Q. " + QUIZ[quizIdx][0];
@@ -964,7 +965,7 @@ h2 { font-size: 17px; }
   function checkQuiz() {
     const a = $("quizInput").value.trim();
     if (quizHash("hearts-quiz:" + a) === QUIZ[quizIdx][1]) {
-      quizOk = true; prefs.quiz = QUIZ_VER; savePrefs();
+      quizOk = true;
       [880, 1175, 1568].forEach((f, i) => setTimeout(() => beep(f, .12), i * 100));
       openGate();
     } else {
