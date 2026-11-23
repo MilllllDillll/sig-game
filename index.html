@@ -260,7 +260,7 @@ h2 { font-size: 17px; }
     </div>
   </div>
 
-  <p class="note"><b>하츠 시그 캐치는 가상 게임입니다.</b> 캐시는 점수일 뿐이고 실제 결제나 후원은 일어나지 않아요. 투네이션을 비롯한 어떤 후원 서비스와도 관련이 없습니다. 카드나 계좌 정보를 입력하라는 곳이 있다면 이 게임이 아니니 넣지 마세요. 순위에는 익명 번호와 메시지만 표시되고 저장되지 않아요. 시그 이름·가격·사진은 라인업컴퍼니 시그 목록 기준(2026년 11월 23일 갱신)입니다.</p>
+  <p class="note"><b>하츠 시그 캐치는 가상 게임입니다.</b> 캐시는 점수일 뿐이고 실제 결제나 후원은 일어나지 않아요. 투네이션을 비롯한 어떤 후원 서비스와도 관련이 없습니다. 카드나 계좌 정보를 입력하라는 곳이 있다면 이 게임이 아니니 넣지 마세요. 순위에는 익명 번호와 메시지만 표시되고 저장되지 않아요. 순위에는 컴퓨터 참가자가 섞여 있을 수 있어요. 시그 이름·가격·사진은 라인업컴퍼니 시그 목록 기준(2026년 11월 23일 갱신)입니다.</p>
 </main>
 
 <div class="gate" id="closed" role="dialog" aria-modal="true" aria-labelledby="closedTitle" hidden>
@@ -690,21 +690,33 @@ h2 { font-size: 17px; }
     return rows;
   }
   const who = x => x.nick || "익명 " + x.cust;
-  /* AI 참가자: 판 번호로 기록이 정해져서 모든 사람 화면에 똑같이 보여요.
-     [이름, 가장 빠른 ms, 가장 느린 ms, 놓칠 확률] */
-  const BOTS = [["🤖 AI 몽실", 3800, 9500, .15], ["🤖 AI 보송", 6000, 14000, .25], ["🤖 AI 꼬물", 9000, 19500, .35]];
-  const BOT_MEMOS = ["멍멍! 찾았다", "오늘도 1등 가즈아", "AI도 시그 좋아해요", "후후 빠르지?", "다음엔 더 빨리!", "꼬리 흔들며 후원", "간식 걸고 후원해요", "사람 이겨 보기"];
+  /* 컴퓨터 참가자: 판 번호로 기록이 정해져서 모든 사람 화면에 똑같이 보여요.
+     10분(20판)마다 참가자 명단이 바뀌고, 매 판 기록은 그 판 번호로 정해져요. */
+  const BOT_NAMES = ["하츠갤러", "시그장인", "ㅇㅇ", "새벽반출근", "후원요정", "하츠단원", "시그수집가", "갤주바라기", "눈팅만10년", "광클러", "손가락빠름", "금손입니다", "하츠는사랑", "출첵요정", "시그헌터", "무지개떡", "냥냥펀치", "치즈볼", "밤샘러", "조용한고수"];
+  const BOT_MEMOS = ["ㅋㅋㅋ 개빠름", "가보자고", "오늘도 출첵", "손 풀고 왔다", "ㄱㄱㄱ", "이건 못참지", "시그 맛집", "하츠 사랑해", "1등 각", "눈 감고도 찾음", "ㅎㅇㅎㅇ", "오늘 컨디션 좋다", "간발의 차", "이거 내꺼", "광클 성공", "후원 완료", "또 왔어요"];
+  /* [가장 빠른 ms, 가장 느린 ms, 놓칠 확률] — 앞쪽일수록 강해요 */
+  const BOT_TIERS = [[1900, 3600, .05], [2600, 5200, .1], [3200, 6500, .15], [4000, 8000, .2], [5000, 9500, .25]];
   function seeded(seed) {
     return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   }
-  function botRows(r) {
+  function roster(r) {
     if (!aiOn || typeof r !== "number") return [];
+    const R = seeded(Math.floor(r / 20) * 48271 + 977);
+    const n = 3 + Math.floor(R() * 3), names = BOT_NAMES.slice(), out = [];
+    for (let k = 0; k < n; k++) {
+      const name = names.splice(Math.floor(R() * names.length), 1)[0];
+      out.push({ name, cust: String(1000 + Math.floor(R() * 9000)), tier: BOT_TIERS[k] });
+    }
+    return out;
+  }
+  function botRows(r) {
     const el = serverNow() - r * ROUND;
-    return BOTS.map(([name, lo, hi, miss], k) => {
+    return roster(r).map((b, k) => {
       const R = seeded(r * 7919 + k * 104729 + 13);
-      const missed = R() < miss, ms = Math.round(lo + R() * (hi - lo)), memo = BOT_MEMOS[Math.floor(R() * BOT_MEMOS.length)];
-      const state = !missed && el >= ms ? "done" : el < PLAY ? "type" : "fail";
-      return { cust: "0000", nick: name, round: r, state, ms: state === "done" ? ms : undefined, memo, mine: false, bot: true };
+      const [lo, hi, miss] = b.tier;
+      const missed = R() < miss, ms = Math.round(lo + R() * (hi - lo)), memo = BOT_MEMOS[Math.floor(R() * BOT_MEMOS.length)], seen = 300 + R() * 900;
+      const state = !missed && el >= ms ? "done" : el < PLAY ? (el >= seen ? "type" : "wait") : "fail";
+      return { cust: b.cust, nick: b.name, round: r, state, ms: state === "done" ? ms : undefined, memo, mine: false };
     });
   }
   function boardRows(r) { return allRows().filter(x => x.round === r).concat(botRows(r)); }
@@ -721,7 +733,7 @@ h2 { font-size: 17px; }
   }
   function renderBoard() {
     const n = serverNow(), r = Math.floor(n / ROUND);
-    const people = allRows().length;
+    const people = allRows().length + roster(r).length;
     $("pPeople").textContent = Math.max(1, people) + "명";
     const here = boardRows(r);
     const done = here.filter(isDone).sort((a, b) => a.ms - b.ms);
@@ -732,7 +744,7 @@ h2 { font-size: 17px; }
     $("boardEmpty").hidden = done.length + going.length > 0;
     $("rankTitle").textContent = "이번 판 순위 · " + String(r % 10000).padStart(4, "0") + "번";
     $("roomNote").textContent = roomState === "on"
-      ? (people > 1 ? "지금 " + people + "명이 같은 시그로 겨루고 있어요." : "지금은 혼자예요. 링크를 받은 사람이 들어오면 같은 시그로 겨룹니다.") + (aiOn ? " AI " + BOTS.length + "마리도 함께 겨뤄요." : "")
+      ? (people > 1 ? "지금 " + people + "명이 같은 시그로 겨루고 있어요." : "지금은 혼자예요. 링크를 받은 사람이 들어오면 같은 시그로 겨룹니다.")
       : roomState === "off" ? "순위 서버에 연결하지 못해 지금은 혼자 연습만 할 수 있어요." + (connectError ? " (오류: " + connectError + ")" : "") : "순위 서버에 연결하는 중이에요.";
     $("meLine").textContent = "나: " + (nick || "닉네임 없음") + " · 성공 " + S.count + "회" + (S.best ? " · 최고 " + (S.best / 1000).toFixed(2) + "초" : "");
     if (n % ROUND >= PLAY && S.phase === "result" + r) paintResult(r, false);
