@@ -215,7 +215,7 @@ h2 { font-size: 17px; }
   .donate .msg:empty { display: none; }
   .amount { padding: 8px 52px 8px 12px; }
   .donate .field { padding: 8px 10px; }
-  .list { max-height: none; overflow: visible; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .list { max-height: min(52vh, 440px); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; border-radius: 12px; background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); }
   .sig { padding: 6px 8px; }
   .sig .tags { display: none; }
   .star { width: 26px; height: 26px; line-height: 26px; font-size: 15px; top: 4px; right: 4px; }
