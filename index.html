@@ -692,19 +692,22 @@ h2 { font-size: 17px; }
   const who = x => x.nick || "익명 " + x.cust;
   /* 컴퓨터 참가자: 판 번호로 기록이 정해져서 모든 사람 화면에 똑같이 보여요.
      10분(20판)마다 참가자 명단이 바뀌고, 매 판 기록은 그 판 번호로 정해져요. */
-  const BOT_NAMES = ["하츠갤러", "시그장인", "ㅇㅇ", "새벽반출근", "후원요정", "하츠단원", "시그수집가", "갤주바라기", "눈팅만10년", "광클러", "손가락빠름", "금손입니다", "하츠는사랑", "출첵요정", "시그헌터", "무지개떡", "냥냥펀치", "치즈볼", "밤샘러", "조용한고수"];
-  const BOT_MEMOS = ["ㅋㅋㅋ 개빠름", "가보자고", "오늘도 출첵", "손 풀고 왔다", "ㄱㄱㄱ", "이건 못참지", "시그 맛집", "하츠 사랑해", "1등 각", "눈 감고도 찾음", "ㅎㅇㅎㅇ", "오늘 컨디션 좋다", "간발의 차", "이거 내꺼", "광클 성공", "후원 완료", "또 왔어요"];
+  /* 이름: 초성 두 글자 (예: ㅎㅊ) */
+  const BOT_CHO = "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ";
+  const BOT_MEMOS = ["하츠 혁근", "ㅎㄱ", "하츠단"];
   /* [가장 빠른 ms, 가장 느린 ms, 놓칠 확률] — 앞쪽일수록 강해요 */
-  const BOT_TIERS = [[1900, 3600, .05], [2600, 5200, .1], [3200, 6500, .15], [4000, 8000, .2], [5000, 9500, .25]];
+  const BOT_TIERS = [[5000, 6000, .05], [5800, 8000, .1], [6500, 9500, .15], [7500, 11000, .2], [8500, 13000, .25]];
   function seeded(seed) {
     return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   }
   function roster(r) {
     if (!aiOn || typeof r !== "number") return [];
     const R = seeded(Math.floor(r / 20) * 48271 + 977);
-    const n = 3 + Math.floor(R() * 3), names = BOT_NAMES.slice(), out = [];
+    const n = 3 + Math.floor(R() * 3), used = new Set(), out = [];
     for (let k = 0; k < n; k++) {
-      const name = names.splice(Math.floor(R() * names.length), 1)[0];
+      let name;
+      do { name = BOT_CHO[Math.floor(R() * BOT_CHO.length)] + BOT_CHO[Math.floor(R() * BOT_CHO.length)]; } while (used.has(name));
+      used.add(name);
       out.push({ name, cust: String(1000 + Math.floor(R() * 9000)), tier: BOT_TIERS[k] });
     }
     return out;
