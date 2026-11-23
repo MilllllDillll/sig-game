@@ -152,6 +152,10 @@ h2 { font-size: 17px; }
 @keyframes hop { 0% { transform: translateY(6px) scale(.9); } 45% { transform: translateY(-12px) scale(1.05); } 100% { transform: none; } }
 .alert { padding: 0 128px; }
 #closed { z-index: 60; }
+#award { z-index: 55; }
+#award .gate-card { text-align: center; }
+#award .board { text-align: left; }
+.award-me { font-weight: 700; color: var(--main-2); }
 #closed .gate-card { text-align: center; justify-items: center; }
 .gate-dog { width: 104px; height: auto; justify-self: center; margin-top: -6px; }
 @media (prefers-reduced-motion: reduce) { .mascot.pop { animation: none; } }
@@ -257,11 +261,29 @@ h2 { font-size: 17px; }
         <p class="empty" id="roomNote"></p>
         <p class="empty" id="meLine"></p>
       </section>
+
+      <section class="card rank" aria-label="15판 랭킹">
+        <h2 id="lbTitle">15판 랭킹</h2>
+        <ol class="board" id="lb"></ol>
+        <p class="empty" id="lbInfo"></p>
+        <p class="empty" id="lbPrev"></p>
+        <p class="hint">빨리 찾을수록 점수가 커요 (3초 200점 · 8초 150점). 15판마다 랭킹을 발표해요.</p>
+      </section>
     </div>
   </div>
 
   <p class="note"><b>하츠 시그 캐치는 가상 게임입니다.</b> 캐시는 점수일 뿐이고 실제 결제나 후원은 일어나지 않아요. 투네이션을 비롯한 어떤 후원 서비스와도 관련이 없습니다. 카드나 계좌 정보를 입력하라는 곳이 있다면 이 게임이 아니니 넣지 마세요. 순위에는 익명 번호와 메시지만 표시되고 저장되지 않아요. 순위에는 컴퓨터 참가자가 섞여 있을 수 있어요. 시그 이름·가격·사진은 라인업컴퍼니 시그 목록 기준(2026년 11월 23일 갱신)입니다.</p>
 </main>
+
+<div class="gate" id="award" role="dialog" aria-modal="true" aria-labelledby="awardTitle" hidden>
+  <div class="gate-card">
+    <img class="gate-dog" id="awardDog" alt="" aria-hidden="true">
+    <h2 id="awardTitle">🏆 15판 랭킹 발표</h2>
+    <ol class="board" id="awardList"></ol>
+    <p class="award-me" id="awardMe"></p>
+    <button class="give" id="awardClose" type="button">닫기</button>
+  </div>
+</div>
 
 <div class="gate" id="closed" role="dialog" aria-modal="true" aria-labelledby="closedTitle" hidden>
   <div class="gate-card">
@@ -517,10 +539,12 @@ h2 { font-size: 17px; }
     touch(); clipMemo();
     const target = SIGS[S.target];
     const hits = SIGS.filter(s => s[1] === n);
-    /* 이름이 같은 시그가 여러 금액으로 있으면 그중 어느 금액이든 정답이에요. */
-    if (!hits.some(s => s[0] === target[0])) {
+    /* 금액까지 정확히 맞아야 정답이에요. 이름이 같은 시그가 여러 개면 사진으로 구분해요. */
+    if (n !== target[1]) {
       S.lockUntil = performance.now() + LOCK;
-      say(hits.length ? cash(n) + "는 '" + hits[0][0] + "' 시그예요. 1초 뒤에 다시 보낼 수 있어요." : cash(n) + "짜리 시그는 없어요. 1초 뒤에 다시 보낼 수 있어요.");
+      const sameName = hits.length && hits[0][0] === target[0];
+      say(sameName ? cash(n) + "는 이름만 같은 다른 '" + target[0] + "' 시그예요. 사진을 확인해 주세요. 1초 뒤에 다시 보낼 수 있어요."
+        : hits.length ? cash(n) + "는 '" + hits[0][0] + "' 시그예요. 1초 뒤에 다시 보낼 수 있어요." : cash(n) + "짜리 시그는 없어요. 1초 뒤에 다시 보낼 수 있어요.");
       beep(220, .25, "square");
       mood("confused");
       setTimeout(() => { if (S.active && !S.done) mood("excited"); }, 1300);
@@ -551,6 +575,7 @@ h2 { font-size: 17px; }
     S.confirmed = true; S.finals[S.round] = ms;
     S.best = Math.min(...Object.values(S.finals));
     showFinal(ms, true);
+    addMyResult(S.round, ms);
   }
   function syncMine() {
     if (!S.done || !S.serverOk || !myUid) return;
@@ -627,12 +652,16 @@ h2 { font-size: 17px; }
     $("pRound").textContent = String(r % 10000).padStart(4, "0");
     $("pNext").textContent = String(left).padStart(2, "0") + "초";
     if (r !== shown) { shown = r; renderBoard(); }
+    if (fdb) watchStats(blockOf(r));
     if (S.round !== r && t < JOIN_BY && !document.hidden && siteOpen) startRound(r);
     if (S.active && (S.round !== r || t >= PLAY)) endRound();
     if (t >= PLAY) {
       const phase = "result" + r;
+      if (S.phase !== phase) renderLeaderboard();
       paintResult(r, S.phase !== phase);
       S.phase = phase;
+      /* 15판째 1등 발표가 끝나면 누적 랭킹을 발표해요. */
+      if (t >= PLAY + 1500 && r % BLOCK === BLOCK - 1 && S.awarded !== r && siteOpen) { S.awarded = r; showAward(r); }
     } else if (S.round === r) {
       if (!S.done) $("timer").textContent = (Math.max(0, n - S.start) / 1000).toFixed(2);
       /* AI 기록이 제때 보이도록 순위표를 자주 다시 그려요. */
@@ -644,6 +673,7 @@ h2 { font-size: 17px; }
       $("timer").textContent = "";
       setAlert("다음 판을 기다리는 중", left + "초 뒤 시그가 뜹니다", "", "뜬 시그의 금액을 찾아 가장 먼저 후원하면 1등");
     }
+    if (!$("award").hidden && (S.awardRound !== r || t < PLAY)) $("award").hidden = true;
   }
 
   /* ranking */
@@ -696,7 +726,7 @@ h2 { font-size: 17px; }
   const BOT_CHO = "ㄱㄴㄷㄹㅁㅂㅅㅇㅈㅊㅋㅌㅍㅎ";
   const BOT_MEMOS = ["하츠 혁근", "ㅎㄱ", "하츠단"];
   /* [가장 빠른 ms, 가장 느린 ms, 놓칠 확률] — 앞쪽일수록 강해요 */
-  const BOT_TIERS = [[5000, 6000, .05], [5800, 8000, .1], [6500, 9500, .15], [7500, 11000, .2], [8500, 13000, .25]];
+  const BOT_TIERS = [[8000, 8990, .05], [9000, 11000, .1], [9500, 12500, .15], [10500, 14500, .2], [11500, 16500, .25]];
   function seeded(seed) {
     return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   }
@@ -712,12 +742,28 @@ h2 { font-size: 17px; }
     }
     return out;
   }
-  function botRows(r) {
-    const el = serverNow() - r * ROUND;
+  /* 시그가 찾기 어려울수록 컴퓨터 참가자도 늦게 찾아요 (ms) */
+  const NAME_COUNT = {};
+  SIGS.forEach(s => { NAME_COUNT[s[0]] = (NAME_COUNT[s[0]] || 0) + 1; });
+  function sigExtra(s) {
+    const name = s[0];
+    const latin = (name.match(/[A-Za-z]/g) || []).length, hangul = (name.match(/[가-힣]/g) || []).length;
+    let x = 0;
+    if (latin) x += hangul ? 1000 : 1800;             // 영어 이름은 한/영 전환이 필요해요
+    const len = Array.from(name.replace(/\s/g, "")).length;
+    if (len > 14) x += 1000; else if (len > 8) x += 500; // 긴 이름
+    if (/[0-9()\-.?!'~]/.test(name)) x += 400;        // 숫자·기호
+    if (NAME_COUNT[name] > 1) x += 700;                // 같은 이름이 여러 개면 사진으로 골라야 해요
+    return x;
+  }
+  function botRows(r, elapsed) {
+    const el = elapsed === undefined ? serverNow() - r * ROUND : elapsed;
+    const extra = sigExtra(SIGS[targetOf(r)]);
     return roster(r).map((b, k) => {
       const R = seeded(r * 7919 + k * 104729 + 13);
       const [lo, hi, miss] = b.tier;
-      const missed = R() < miss, ms = Math.round(lo + R() * (hi - lo)), memo = BOT_MEMOS[Math.floor(R() * BOT_MEMOS.length)], seen = 300 + R() * 900;
+      const missed = R() < miss, base = lo + R() * (hi - lo), memo = BOT_MEMOS[Math.floor(R() * BOT_MEMOS.length)], seen = 300 + R() * 900;
+      const ms = Math.round(Math.min(PLAY - 600, base + extra * (0.8 + R() * 0.4)));
       const state = !missed && el >= ms ? "done" : el < PLAY ? (el >= seen ? "type" : "wait") : "fail";
       return { cust: b.cust, nick: b.name, round: r, state, ms: state === "done" ? ms : undefined, memo, mine: false };
     });
@@ -751,7 +797,78 @@ h2 { font-size: 17px; }
       : roomState === "off" ? "순위 서버에 연결하지 못해 지금은 혼자 연습만 할 수 있어요." + (connectError ? " (오류: " + connectError + ")" : "") : "순위 서버에 연결하는 중이에요.";
     $("meLine").textContent = "나: " + (nick || "닉네임 없음") + " · 성공 " + S.count + "회" + (S.best ? " · 최고 " + (S.best / 1000).toFixed(2) + "초" : "");
     if (n % ROUND >= PLAY && S.phase === "result" + r) paintResult(r, false);
+    renderLeaderboard();
   }
+  /* ---------- 15판 누적 랭킹 ---------- */
+  const BLOCK = 15;
+  const blockOf = r => Math.floor(r / BLOCK);
+  const ptsOf = ms => Math.max(1, Math.round((PLAY - ms) / 100));
+  let statsRef = null, statsBlock = null, statsData = {}, prevStats = { block: null, data: {} };
+  const myStats = { block: null, pts: 0, ok: 0, best: 0, last: null };
+  function addMyResult(round, ms) {
+    const b = blockOf(round);
+    if (myStats.block !== b) Object.assign(myStats, { block: b, pts: 0, ok: 0, best: 0, last: null });
+    if (myStats.last === round) return;
+    myStats.last = round; myStats.ok++; myStats.pts += ptsOf(ms);
+    myStats.best = myStats.best ? Math.min(myStats.best, ms) : ms;
+    if (fdb && myUid && nick) fdb.ref("catchStats/" + b + "/" + myUid).set({ nick, pts: myStats.pts, ok: myStats.ok, best: myStats.best, last: round }).catch(() => {});
+    renderBoard();
+  }
+  function watchStats(b) {
+    if (!fdb || statsBlock === b) return;
+    if (statsRef) { statsRef.off(); prevStats = { block: statsBlock, data: statsData }; }
+    statsBlock = b; statsData = {};
+    statsRef = fdb.ref("catchStats/" + b);
+    statsRef.on("value", snap => {
+      statsData = snap.val() || {};
+      const mine = myUid && statsData[myUid];
+      /* 새로고침해도 이번 15판 점수를 이어 가요. */
+      if (mine && myStats.block !== b) Object.assign(myStats, { block: b, pts: Number(mine.pts) || 0, ok: Number(mine.ok) || 0, best: Number(mine.best) || 0, last: mine.last });
+      renderBoard();
+    }, () => {});
+    if (prevStats.block !== b - 1) fdb.ref("catchStats/" + (b - 1)).once("value").then(snap => { prevStats = { block: b - 1, data: snap.val() || {} }; renderBoard(); }).catch(() => {});
+  }
+  function standings(b, data, upto) {
+    const map = new Map();
+    const add = (key, name, pts, ok, best, mine) => {
+      const e = map.get(key) || { name, pts: 0, ok: 0, best: 0, mine };
+      e.pts += pts; e.ok += ok; if (best) e.best = e.best ? Math.min(e.best, best) : best;
+      map.set(key, e);
+    };
+    for (let rr = b * BLOCK; rr <= Math.min(upto, b * BLOCK + BLOCK - 1); rr++)
+      botRows(rr, Infinity).forEach(x => { if (x.state === "done") add("bot:" + x.nick, x.nick, ptsOf(x.ms), 1, x.ms, false); });
+    for (const uid of Object.keys(data || {})) {
+      const v = data[uid] || {}, nm = cleanNick(v.nick);
+      if (!nm || typeof v.pts !== "number" || !isFinite(v.pts)) continue;
+      add("u:" + uid, nm, Math.max(0, Math.min(3500, v.pts)), Number(v.ok) || 0, Number(v.best) || 0, uid === myUid);
+    }
+    if (myStats.block === b && myStats.ok && !(myUid && data && data[myUid])) add("me", nick, myStats.pts, myStats.ok, myStats.best, true);
+    return [...map.values()].sort((a, c) => c.pts - a.pts || (a.best || 1e9) - (c.best || 1e9));
+  }
+  function renderLeaderboard() {
+    const n = serverNow(), r = Math.floor(n / ROUND), t = n % ROUND, b = blockOf(r);
+    const upto = t >= PLAY ? r : r - 1, played = Math.max(0, upto - b * BLOCK + 1);
+    const list = standings(b, statsBlock === b ? statsData : {}, upto);
+    $("lbTitle").textContent = "15판 랭킹 · " + played + " / " + BLOCK + "판";
+    const box = $("lb"); box.textContent = "";
+    list.slice(0, 5).forEach((x, i) => box.appendChild(row((i + 1) + "위", x.name, won(x.pts) + "점", x.mine, false, "")));
+    const myIdx = list.findIndex(x => x.mine);
+    $("lbInfo").textContent = !list.length ? "아직 기록이 없어요." : myIdx >= 5 ? "나: " + (myIdx + 1) + "위 · " + won(list[myIdx].pts) + "점" : "";
+    const pb = b - 1, prev = standings(pb, prevStats.block === pb ? prevStats.data : {}, pb * BLOCK + BLOCK - 1);
+    $("lbPrev").textContent = prev.length ? "지난 랭킹 1위: " + prev[0].name + " · " + won(prev[0].pts) + "점" : "";
+  }
+  function showAward(r) {
+    const b = blockOf(r), list = standings(b, statsBlock === b ? statsData : {}, r);
+    if (!list.length) return;
+    const box = $("awardList"); box.textContent = "";
+    list.slice(0, 5).forEach((x, i) => box.appendChild(row(["🥇", "🥈", "🥉", "4위", "5위"][i], x.name, won(x.pts) + "점", x.mine, false, "")));
+    const myIdx = list.findIndex(x => x.mine);
+    $("awardMe").textContent = myIdx >= 0 ? "나는 " + (myIdx + 1) + "위 · " + won(list[myIdx].pts) + "점!" : "";
+    $("award").hidden = false; S.awardRound = r;
+    [784, 988, 1175, 1568, 2093].forEach((f, i) => setTimeout(() => beep(f, .18), i * 120));
+  }
+  $("awardClose").addEventListener("click", () => { $("award").hidden = true; });
+
   async function connect() {
     const offline = e => { connectError = String((e && (e.code || e.message)) || "알 수 없음").slice(0, 80); roomState = "off"; playerRef = null; renderBoard(); };
     if (!window.firebase) { offline({ code: "Firebase 스크립트를 불러오지 못함" }); return; }
@@ -772,6 +889,7 @@ h2 { font-size: 17px; }
         }
         players = snap.val() || {};
         roomState = "on";
+        watchStats(blockOf(Math.floor(serverNow() / ROUND)));
         syncMine(); renderBoard();
       }, offline);
     } catch (e) { offline(e); }
@@ -798,6 +916,7 @@ h2 { font-size: 17px; }
   $("nickBtn").addEventListener("click", openGate);
   $("gateDog").src = DOG.wave;
   $("closedDog").src = DOG.confused;
+  $("awardDog").src = DOG.happy;
   mood("wave");
   paintNick(); openGate();
 
