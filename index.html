@@ -150,6 +150,7 @@ h2 { font-size: 17px; }
 .mascot { position: absolute; left: 14px; bottom: 8px; width: 118px; height: auto; pointer-events: none; filter: drop-shadow(0 4px 6px rgba(194, 69, 122, .2)); }
 .mascot.pop { animation: hop .5s cubic-bezier(.3, 1.6, .5, 1); }
 @keyframes hop { 0% { transform: translateY(6px) scale(.9); } 45% { transform: translateY(-12px) scale(1.05); } 100% { transform: none; } }
+.alert { padding: 0 128px; }
 .gate-dog { width: 104px; height: auto; justify-self: center; margin-top: -6px; }
 @media (prefers-reduced-motion: reduce) { .mascot.pop { animation: none; } }
 @media (max-width: 900px) {
@@ -158,6 +159,7 @@ h2 { font-size: 17px; }
   .screen { order: 0; } .donate { order: 1; } .catalog { order: 2; } .rank { order: 3; }
   .shot { width: min(230px, 62%); }
   .mascot { width: 92px; }
+  .alert { padding: 0 100px; }
   .alert.win .shot { width: min(150px, 45%); }
   .list { max-height: 360px; }
 }
